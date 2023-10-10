@@ -20,6 +20,7 @@ struct Container {
 };
 
 __constant__ Container constContainer;
+__constant__ real_t Relax;
 
 struct Access {
     const int x, y, z;
@@ -55,20 +56,6 @@ template <class A> struct Node {
     const A& acc;
     real_t f[27];
     __device__ Node(const A& acc_) : acc(acc_) {};
-    __device__ void RunElement2() {
-        real_t dens = 0;
-        real_t tmp;
-        #pragma unroll 8
-        for (int i=0; i<27; i++) {
-            tmp = acc.getF(d3q27_ex[i],d3q27_ey[i],d3q27_ez[i],i);
-            dens = dens + tmp;
-        }
-        #pragma unroll 8
-        for (int i=0; i<27; i++) {
-            tmp = dens/27.0;
-            acc.push(tmp, i);
-        }
-    }
     __device__ void RunElement() {
         #pragma unroll
         for (int i=0; i<27; i++) {
@@ -81,10 +68,29 @@ template <class A> struct Node {
         }
         #pragma unroll
         for (int i=0; i<27; i++) {
-            f[i] = dens/27.0;
+            f[i] = Relax * f[i] + (1.0 - Relax) * dens/27.0;
             
         }
         #pragma unroll
+        for (int i=0; i<27; i++) {
+            acc.push(f[i], i);
+        }        
+    }
+    __device__ void RunElementNoUnroll() {
+        #pragma nounroll
+        for (int i=0; i<27; i++) {
+            f[i] = acc.getF(d3q27_ex[i],d3q27_ey[i],d3q27_ez[i],i);
+        }
+        real_t dens = 0;
+        #pragma nounroll
+        for (int i=0; i<27; i++) {
+            dens = dens + f[i];
+        }
+        #pragma nounroll
+        for (int i=0; i<27; i++) {
+            f[i] = Relax * f[i] + (1.0 - Relax) * dens/27.0;
+        }
+        #pragma nounroll
         for (int i=0; i<27; i++) {
             acc.push(f[i], i);
         }        
@@ -102,6 +108,58 @@ __global__ void Kernel() {
     }
 }
 
+__global__ void KernelDouble() {
+    int x_ = threadIdx.x + blockIdx.x*blockDim.x;
+	int y_ = threadIdx.y + blockIdx.y*blockDim.y;
+	int z_ =               blockIdx.z;
+    Access acc(x_,y_,z_);
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+}
+
+
+__global__ void KernelQuad() {
+    int x_ = threadIdx.x + blockIdx.x*blockDim.x;
+	int y_ = threadIdx.y + blockIdx.y*blockDim.y;
+	int z_ =               blockIdx.z;
+    Access acc(x_,y_,z_);
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+    {
+        Node< Access > now(acc);
+        now.RunElement();
+    }
+}
+
+
+__global__ void KernelNoUnroll() {
+    int x_ = threadIdx.x + blockIdx.x*blockDim.x;
+	int y_ = threadIdx.y + blockIdx.y*blockDim.y;
+	int z_ =               blockIdx.z;
+    Access acc(x_,y_,z_);
+    {
+        Node< Access > now(acc);
+        now.RunElementNoUnroll();
+    }
+}
+
+
 int main () {
     Container container;
     container.nx = 128;
@@ -110,7 +168,9 @@ int main () {
     container.nd = 27;
     HANDLE_ERROR( hipMalloc(&container.tab, container.nx*container.ny*container.nz*container.nd*sizeof(real_t)) );
     HANDLE_ERROR( hipMemcpyToSymbol(HIP_SYMBOL(constContainer),&container,sizeof(Container),0,hipMemcpyHostToDevice) );
-    Kernel <<< dim3(container.nx/32,container.ny/4,container.nz), dim3(32,4) >>>();
+    real_t relax_value = 0.5;
+    HANDLE_ERROR( hipMemcpyToSymbol(HIP_SYMBOL(Relax),&relax_value,sizeof(real_t),0,hipMemcpyHostToDevice) );
+    Kernel <<< dim3(container.nx/64,container.ny/2,container.nz), dim3(64,2) >>>();
     HANDLE_ERROR( hipFree(container.tab) );
     printf("Finished\n");
     return 0;
