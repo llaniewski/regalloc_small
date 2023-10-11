@@ -6,27 +6,35 @@ read_pipe = function(cmd) {
     data
 }
 
-filename = "main-hip-amdgcn-amd-amdhsa-gfx90a.s"
-data = read_pipe(paste0("cat ",filename," | sed -n '/amdhsa[.]kernels/,/\\.\\.\\./p'"))
-data = yaml::yaml.load(data)
-fun = function(x) as.data.frame(x[sapply(x,length) == 1 & !grepl("^.args", names(x))])
-tab = do.call(rbind, lapply(data$amdhsa.kernels, fun))
+read_stats = function(filename) {
+    data = read_pipe(paste0("cat ",filename," | sed -n '/amdhsa[.]kernels/,/\\.\\.\\./p'"))
+    data = yaml::yaml.load(data)
+    fun = function(x) as.data.frame(x[sapply(x,length) == 1 & !grepl("^.args", names(x))])
+    tab = do.call(rbind, lapply(data$amdhsa.kernels, fun))
+    names(tab) = gsub("^[.]","",names(tab))
 
-x = paste("c++filt", tab$.symbol)
-x = sapply(x, function(x) read_pipe(x))
-x = gsub(" *\\[.*\\]$","",x)
-tab$name = x
+    x = paste("c++filt", tab$symbol)
+    x = sapply(x, function(x) read_pipe(x))
+    x = gsub(" *\\[.*\\]$","",x)
+    tab$name = x
 
-data = read_pipe(paste0("cat ",filename," | grep ScratchSize"))
-data = gsub('.*: ','',data)
-data = as.integer(data)
+    data = read_pipe(paste0("cat ",filename," | grep ScratchSize"))
+    data = gsub('.*: ','',data)
+    data = as.integer(data)
 
-tab$ScratchSize = data
+    tab$ScratchSize = data
 
-tab$TotalBytes = 4*(tab$".sgpr_count" + tab$".vgpr_count") + tab$"ScratchSize"
+    tab$TotalBytes = 4*(tab$"sgpr_count" + tab$"vgpr_count") + tab$"ScratchSize"
+    
+    tab
+}
 
-#sel = tab$.vgpr_spill_count > 0
+tab = read_stats(filename = "main-hip-amdgcn-amd-amdhsa-gfx90a.s")
+
 sel = rep(TRUE,nrow(tab))
-options(width = 160)
-print(tab[sel,c("name", ".sgpr_count", ".vgpr_count", ".vgpr_spill_count","ScratchSize","TotalBytes")])
+out_tab = tab[sel,c("name", "sgpr_count", "vgpr_count", "vgpr_spill_count","ScratchSize","TotalBytes")]
 
+options(width = 160)
+#print(out_tab)
+
+knitr::kable(out_tab)
