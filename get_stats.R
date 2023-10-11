@@ -22,9 +22,10 @@ read_stats = function(filename) {
     data = gsub('.*: ','',data)
     data = as.integer(data)
 
-    tab$ScratchSize = data
-
-    tab$TotalBytes = 4*(tab$"sgpr_count" + tab$"vgpr_count") + tab$"ScratchSize"
+    if (length(data) == nrow(tab)) {
+        tab$ScratchSize = data
+        tab$TotalBytes = 4*(tab$"sgpr_count" + tab$"vgpr_count") + tab$"ScratchSize"
+    }
     
     tab
 }
@@ -32,7 +33,7 @@ read_stats = function(filename) {
 tab = read_stats(filename = "main-hip-amdgcn-amd-amdhsa-gfx90a.s")
 
 sel = rep(TRUE,nrow(tab))
-out_tab = tab[sel,c("name", "sgpr_count", "vgpr_count", "vgpr_spill_count","ScratchSize","TotalBytes")]
+out_tab = tab[sel,names(tab) %in% c("name", "sgpr_count", "vgpr_count", "vgpr_spill_count","ScratchSize","TotalBytes")]
 
 options(width = 160)
 #print(out_tab)
